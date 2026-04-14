@@ -65,7 +65,6 @@ def main(cfg: DictConfig):
     teacher_model = None
     kd_cfg = cfg.training.get("distill", None)
     if kd_cfg is not None and kd_cfg.enable:
-        from omegaconf import OmegaConf
         teacher_cfg = OmegaConf.to_container(model_cfg, resolve=True)
         teacher_cfg = OmegaConf.create(teacher_cfg)
         teacher_backbone = kd_cfg.get("teacher_backbone", "mit_b4")
