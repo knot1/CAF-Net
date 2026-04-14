@@ -11,7 +11,7 @@ from skimage import io
 
 from models.model import Baseline
 from train import train, test, visualize_testloader
-from utils import ISPRS_dataset, convert_to_color, fix_random_seed, WHUDataset, YESegDataset
+from utils import ISPRS_dataset, convert_to_color, fix_random_seed
 
 logging.captureWarnings(True)
 logger = logging.getLogger(__name__)
@@ -51,10 +51,6 @@ def main(cfg: DictConfig):
         model = Baseline(cfg=model_cfg, num_classes=N_CLASSES, in_chans=[4, 1])
     elif cfg.training_dataset == 'Vaihingen':
         model = Baseline(cfg=model_cfg, num_classes=N_CLASSES, in_chans=[3, 1])
-    elif cfg.training_dataset == 'YESeg':
-        model = Baseline(cfg=model_cfg, num_classes=N_CLASSES, in_chans=[3, 3])
-    else:
-        raise ValueError("dataset not supported")
 
     model = model.cuda()
     model = nn.DataParallel(model)

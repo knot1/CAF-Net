@@ -89,23 +89,23 @@ class Baseline(nn.Module):
             self.in_chans = [3, 1]
 
         if cfg.backbone == 'mit_b5':
-            from .encoder_agg import mit_b5 as backbone
+            from .encoder import mit_b5 as backbone
             self.backbone = backbone(norm_fuse=norm_layer, in_chans=self.in_chans)
         elif cfg.backbone == 'mit_b4':
-            from .encoder_baseline import mit_b4 as backbone
+            from .encoder import mit_b4 as backbone
             self.backbone = backbone(norm_fuse=norm_layer, in_chans=self.in_chans)
         elif cfg.backbone == 'mit_b2':
-            from .encoder_agg import mit_b2 as backbone
+            from .encoder import mit_b2 as backbone
             self.backbone = backbone(norm_fuse=norm_layer, in_chans=self.in_chans)
         elif cfg.backbone == 'mit_b1':
-            from .encoder_agg import mit_b0 as backbone
+            from .encoder import mit_b0 as backbone
             self.backbone = backbone(norm_fuse=norm_layer, in_chans=self.in_chans)
         elif cfg.backbone == 'mit_b0':
-            from .encoder_agg import mit_b0 as backbone
+            from .encoder import mit_b0 as backbone
             self.backbone = backbone(norm_fuse=norm_layer, in_chans=self.in_chans)
             self.channels = [32, 64, 160, 256]
         else:
-            from .encoder_agg import mit_b4 as backbone
+            from .encoder import mit_b4 as backbone
             self.backbone = backbone(norm_fuse=norm_layer, in_chans=self.in_chans)
 
         from .Seg_head import DecoderHead
