@@ -4,6 +4,7 @@ import os
 import numpy as np
 import pandas as pd
 import torch
+import torch.nn.functional as F
 from skimage import io
 
 from utils import format_string, convert_from_color, count_sliding_window, grouper, sliding_window, CrossEntropy2d, dice_loss, \
@@ -13,6 +14,53 @@ from utils import format_string, convert_from_color, count_sliding_window, group
 
 logging.captureWarnings(True)
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Knowledge-distillation helpers
+# ---------------------------------------------------------------------------
+
+def pixel_kd_kl(student_logits, teacher_logits, T=4.0, weight=None):
+    """Pixel-wise KL divergence with temperature scaling.
+
+    Args:
+        student_logits: [B, C, H, W]
+        teacher_logits: [B, C, H, W]
+        T: distillation temperature
+        weight: optional [B, H, W] float weight map
+
+    Returns:
+        Scalar loss.
+    """
+    s = F.log_softmax(student_logits / T, dim=1)
+    t = F.softmax(teacher_logits / T, dim=1)
+    # per-pixel sum over classes -> [B, H, W]
+    kl = F.kl_div(s, t, reduction="none").sum(dim=1) * (T * T)
+    if weight is not None:
+        kl = kl * weight
+    return kl.mean()
+
+
+def edge_weight_from_predmask(mask, k=3, edge_boost=1.0):
+    """Build a boundary weight map from a predicted segmentation mask.
+
+    Uses morphological gradient (dilation - erosion) on the argmax mask to
+    locate class boundaries. Boundary pixels receive a higher weight.
+
+    Args:
+        mask: [B, H, W] long tensor (argmax predictions)
+        k: kernel size for morphological operations
+        edge_boost: additional weight added at boundary pixels (base weight=1)
+
+    Returns:
+        weight: [B, H, W] float tensor with values in [1, 1+edge_boost]
+    """
+    m = mask.float().unsqueeze(1)  # [B, 1, H, W]
+    pad = k // 2
+    dil = F.max_pool2d(m, kernel_size=k, stride=1, padding=pad)
+    ero = -F.max_pool2d(-m, kernel_size=k, stride=1, padding=pad)
+    boundary = (dil - ero).abs().clamp(0, 1).squeeze(1)  # [B, H, W]
+    return 1.0 + edge_boost * boundary
 
 
 def test(dataset_cfg, training_cfg, model, test_ids, all=False, test_loader=None):
@@ -103,7 +151,8 @@ def test(dataset_cfg, training_cfg, model, test_ids, all=False, test_loader=None
             return results
 
 
-def train(dataset_cfg, training_cfg, model, optimizer, scheduler, train_loader, weights, results_dir, test_loader=None):
+def train(dataset_cfg, training_cfg, model, optimizer, scheduler, train_loader, weights, results_dir,
+          test_loader=None, teacher_model=None, kd_cfg=None):
     weights = weights.cuda()
     epochs = training_cfg.epochs
     save_epoch = training_cfg.save_epoch
@@ -137,8 +186,31 @@ def train(dataset_cfg, training_cfg, model, optimizer, scheduler, train_loader, 
             output, L_cons, low_L_cons = model(opt, dsm)
             loss_ce = CrossEntropy2d(output, target, weight=weights)
             loss_dice = dice_loss(output, target)
-            
+
             loss = loss_ce + (L_cons * training_cfg.alpha) - (low_L_cons * training_cfg.beta) + (loss_dice * training_cfg.gamma)
+
+            # ---- knowledge distillation (optional) ----
+            if kd_cfg is not None and kd_cfg.enable and teacher_model is not None:
+                T = float(kd_cfg.T)
+                lambda_kd = float(kd_cfg.lambda_kd)
+                lambda_edge = float(kd_cfg.lambda_edge)
+                edge_k = int(kd_cfg.edge_k)
+                edge_boost = float(kd_cfg.edge_boost)
+
+                teacher_model.eval()
+                with torch.no_grad():
+                    t_out, _, _ = teacher_model(opt, dsm)
+
+                # pixel-wise logits KD
+                loss_kd = pixel_kd_kl(output, t_out, T=T)
+
+                # boundary-aware KD: emphasise pixels near class boundaries
+                t_mask = torch.argmax(t_out, dim=1)  # [B, H, W]
+                w_edge = edge_weight_from_predmask(t_mask, k=edge_k, edge_boost=edge_boost)
+                loss_edgekd = pixel_kd_kl(output, t_out, T=T, weight=w_edge)
+
+                loss = loss + lambda_kd * loss_kd + lambda_edge * loss_edgekd
+
             loss.backward()
             optimizer.step()
 

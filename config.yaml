@@ -42,6 +42,15 @@ training:
   alpha: 0.01
   beta: 0.05
   gamma: 0.5
+  distill:
+    enable: false
+    teacher_ckpt: ""
+    teacher_backbone: "mit_b4"
+    T: 4.0
+    lambda_kd: 1.0
+    lambda_edge: 1.0
+    edge_k: 3
+    edge_boost: 1.0
 
 dataset:
   name: ${training_dataset}
